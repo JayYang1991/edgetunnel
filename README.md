@@ -154,6 +154,57 @@
    /http://user:password@127.0.0.1:8080 (默认激活全局SOCKS5)
    ```
 
+- 手动获取优选订阅方法
+   ```bash
+   curl -L -A "v2rayN/edgetunnel (https://github.com/cmliu/edgetunnel)" "https://sub.cmliussss.net/sub?host=example.com&uuid=00000000-0000-4000-8000-000000000000" | base64 -d
+   ```
+---
+
+## 🛰️ 优选订阅管理 Worker (`sub-worker.js`)
+
+如果您需要一个专门的、支持在线编辑优选 IP 列表并能自动合并远程源的订阅分发服务，可以使用本项目提供的 `sub-worker.js`。
+
+### 1. 部署说明
+1. 在 Cloudflare Workers 创建一个新 Worker，粘贴 [sub-worker.js](https://github.com/cmliu/edgetunnel/blob/main/sub-worker.js) 的内容。
+2. 绑定 **KV 命名空间**，变量名为 `KV`。
+3. 设置**环境变量**：
+   - `ADMIN`：管理后台登录密码。
+   - `TOKEN`：用于 PUT 接口更新的私有令牌（必填，用于 API 安全验证）。
+   - `SUB_SOURCE`：(可选) 远程订阅源地址，默认为 `https://sub.cmliussss.net`。
+
+### 2. 接口使用
+- **订阅分发接口**:
+  `https://your-worker.workers.dev/sub?host=你的域名&uuid=你的UUID`
+  (返回 Base64 编码的节点列表，自动合并远程源与本地 KV 的 IP)
+
+- **可视化管理后台**:
+  `https://your-worker.workers.dev/admin`
+  (登录后可在线编辑、保存自定义优选 IP，支持暗黑模式)
+
+- **PUT 自动更新接口 (API)**: 
+  支持通过脚本或工具自动更新优选 IP 列表。
+  
+  **方式一：URL 参数验证 (直接发送文本)**
+  ```bash
+  curl -X PUT "https://your-worker.workers.dev/api/update?token=你的TOKEN" \
+       -d "1.1.1.1:443#優选IP1
+  2.2.2.2:443#優选IP2"
+  ```
+  
+  **方式二：文件上传验证 (支持指定本地文件)**
+  ```bash
+  # 使用 -F "file=@本地文件名" 上传
+  curl -X PUT "https://your-worker.workers.dev/api/update?token=你的TOKEN" \
+       -F "file=@ADD.txt"
+  ```
+
+  **方式三：Header 请求头验证**
+  ```bash
+  curl -X PUT "https://your-worker.workers.dev/api/update" \
+       -H "Authorization: 你的TOKEN" \
+       --data-binary @ADD.txt
+  ```
+
 ---
 
 ## 💻 客户端适配情况
