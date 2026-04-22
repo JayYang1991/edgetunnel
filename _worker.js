@@ -1060,6 +1060,19 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
         const processRules = (rules, isDns = false) => {
             if (!Array.isArray(rules)) return;
             rules.forEach(rule => {
+                if (rule.rule_set) {
+                    const ruleSiteList =  Array.isArray(rule.rule_set) ? rule.rule_set : [rule.rule_set];
+                    ruleSiteList.forEach(tag => {
+                        if (!ruleSetsDefinitions.has(tag)) {
+                            ruleSetsDefinitions.set(tag, {
+                                tag: tag,
+                                type: "local",
+                                format: "binary",
+                                path: `/usr/local/etc/sing-box/rule-set/${tag}.srs`
+                            });
+                        }
+                    });
+                }
                 if (rule.geosite) {
                     const geositeList = Array.isArray(rule.geosite) ? rule.geosite : [rule.geosite];
                     rule.rule_set = geositeList.map(name => {
@@ -1067,10 +1080,9 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
                         if (!ruleSetsDefinitions.has(tag)) {
                             ruleSetsDefinitions.set(tag, {
                                 tag: tag,
-                                type: "remote",
+                                type: "local",
                                 format: "binary",
-                                url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${name}.srs`,
-                                download_detour: "DIRECT"
+                                path: `/usr/local/etc/sing-box/rule-set/geosite-${name}.srs`
                             });
                         }
                         return tag;
@@ -1085,10 +1097,9 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
                         if (!ruleSetsDefinitions.has(tag)) {
                             ruleSetsDefinitions.set(tag, {
                                 tag: tag,
-                                type: "remote",
+                                type: "local",
                                 format: "binary",
-                                url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${name}.srs`,
-                                download_detour: "DIRECT"
+                                path: `/usr/local/etc/sing-box/rule-set/geoip-${name}.srs`
                             });
                         }
                         rule.rule_set.push(tag);
