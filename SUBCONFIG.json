@@ -1,0 +1,116 @@
+[
+    {
+        "label": "ACL4SSR规则",
+        "options": [
+            {
+                "label": "默认版 分组比较全 ACL4SSR_Online",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online.ini"
+            },
+            {
+                "label": "更多去广告 ACL4SSR_Online_AdblockPlus",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_AdblockPlus.ini"
+            },
+            {
+                "label": "多国分组 ACL4SSR_Online_MultiCountry",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_MultiCountry.ini"
+            },
+            {
+                "label": "无自动测速 ACL4SSR_Online_NoAuto",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_NoAuto.ini"
+            },
+            {
+                "label": "无广告拦截规则 ACL4SSR_Online_NoReject",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_NoReject.ini"
+            },
+            {
+                "label": "精简版 ACL4SSR_Online_Mini",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini.ini"
+            },
+            {
+                "label": "精简版 更多去广告 ACL4SSR_Online_Mini_AdblockPlus",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini_AdblockPlus.ini"
+            },
+            {
+                "label": "精简版 不带自动测速 ACL4SSR_Online_Mini_NoAuto",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini_NoAuto.ini"
+            },
+            {
+                "label": "精简版 带故障转移 ACL4SSR_Online_Mini_Fallback",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini_Fallback.ini"
+            },
+            {
+                "label": "精简版 自动测速、故障转移、负载均衡 ACL4SSR_Online_Mini_MultiMode",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini_MultiMode.ini"
+            },
+            {
+                "label": "精简版 带港美日国家 ACL4SSR_Online_Mini_MultiCountry",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Mini_MultiCountry.ini"
+            },
+            {
+                "label": "全分组 重度用户使用 ACL4SSR_Online_Full",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full.ini"
+            },
+            {
+                "label": "全分组 多模式 重度用户使用 ACL4SSR_Online_Full_MultiMode",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full_MultiMode.ini"
+            },
+            {
+                "label": "全分组 无自动测速 重度用户使用 ACL4SSR_Online_Full_NoAuto",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full_NoAuto.ini"
+            },
+            {
+                "label": "全分组 重度用户使用 更多去广告 ACL4SSR_Online_Full_AdblockPlus",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full_AdblockPlus.ini"
+            },
+            {
+                "label": "全分组 重度用户使用 奈飞全量 ACL4SSR_Online_Full_Netflix",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full_Netflix.ini"
+            },
+            {
+                "label": "全分组 重度用户使用 谷歌细分 ACL4SSR_Online_Full_Google",
+                "value": "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/refs/heads/master/Clash/config/ACL4SSR_Online_Full_Google.ini"
+            }
+        ]
+    },
+    {
+        "label": "CM自用规则",
+        "options": [          
+            {
+                "label": "默认版 识别港美地区 CM_Online",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online.ini"
+            },
+            {
+                "label": "精简版 自动测速、故障转移、负载均衡 识别CloudFlareCDN CM_Online_Mini_MultiMode_CF",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Mini_MultiMode_CF.ini"
+            },            
+            {
+                "label": "精简版 不带自动测速(有效减少-1情况) 识别CloudFlareCDN CM_Online_Mini_NoAuto_CF",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Mini_NoAuto_CF.ini"
+            },  
+            {
+                "label": "识别港美地区 负载均衡 CM_Online_MultiCountry",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_MultiCountry.ini"
+            },
+            {
+                "label": "识别港美地区、CloudFlareCDN 负载均衡 CF节点专用 CM_Online_MultiCountry_CF",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_MultiCountry_CF.ini"
+            },
+            {
+                "label": "识别多地区分组 CM_Online_Full",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini"
+            },
+            {
+                "label": "识别多地区、CloudFlareCDN 分组 CF节点专用 CM_Online_Full_CF",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full_CF.ini"
+            },
+            {
+                "label": "识别多地区 负载均衡 CM_Online_Full_MultiMode",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full_MultiMode.ini"
+            },
+            {
+                "label": "识别多地区、CloudFlareCDN 负载均衡 CF节点专用 CM_Online_Full_MultiMode_CF",
+                "value": "https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full_MultiMode_CF.ini"
+            }
+        ]
+    }
+]

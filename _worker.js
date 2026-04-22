@@ -1017,7 +1017,7 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, uuid = null,
 }
 
 function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = null, fingerprint = "chrome", ech_config = null) {
-    const sb_json_text = SingBox_原始订阅内容.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
+    const sb_json_text = SingBox_原始订阅内容;
     try {
         let config = JSON.parse(sb_json_text);
 
