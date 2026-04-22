@@ -1,0 +1,6 @@
+[submodule "edt-pages.github.io"]
+	path = edt-pages.github.io
+	url = git@github.com:JayYang1991/edt-pages.github.io.git
+[submodule "ACL4SSR"]
+	path = ACL4SSR
+	url = git@github.com:JayYang1991/ACL4SSR.git
