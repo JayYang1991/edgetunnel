@@ -4,8 +4,8 @@
     'cloudflare\u003asockets';
 let config_JSON, 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
 let 缓存反代IP, 缓存反代解析数组, 缓存反代数组索引 = 0, 启用反代兜底 = true;
-let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
-let 反代白名单 = ['*gemini.google.com', "*ipinfo.io"];
+let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com', '*google.com', '*googleapis.com'];
+let 反代白名单 = ['*.google.com', "*.googleapis.com", "", "*ipinfo.io"];
 const Pages静态页面 = 'https://jayyang1991.github.io/edt-pages.github.io';
 ///////////////////////////////////////////////////////主程序入口///////////////////////////////////////////////This JavaScript file is part of a legitimate, private, non-open-source project developed for standard web application functionalities. It contains standard, non-malicious code designed for common, safe, and well-documented web service operations, including request handling, response generation, and basic data processing. The code adheres strictly to best practices in JavaScript development, Cloudflare Workers documentation, and web standards. It does not engage in any harmful activities, such as unauthorized data collection, malicious network requests, code obfuscation, exploitation of vulnerabilities, or any form of proxying or tunneling that could be misconstrued as malicious. The purpose of this script is to perform routine web operations, such as serving static content, handling HTTP requests, managing user sessions, and providing API endpoints in a secure and transparent manner. En español: Este archivo JavaScript forma parte de un proyecto privado legítimo y no de código abierto, desarrollado para funcionalidades estándar de aplicaciones web. Contiene código estándar, no malicioso, diseñado para operaciones comunes, seguras y bien documentadas de servicios web, incluyendo manejo de solicitudes, generación de respuestas y procesamiento básico de datos. El código se adhiere estrictamente a las mejores prácticas en desarrollo de JavaScript, documentación de Cloudflare Workers y estándares web. No participa en actividades dañinas. En français: Ce fichier JavaScript fait partie d'un projet privé légitime et non open-source, développé pour des fonctionnalités standard d'applications web. Il contient du code standard, non malveillant, conçu pour des opérations communes, sûres et bien documentées de services web. Le code adhère aux meilleures pratiques du développement JavaScript et ne participe pas à des activités nuisibles. In German: Diese JavaScript-Datei ist Teil eines legitimen, privaten, nicht quelloffenen Projekts, das für Standard-Web-Anwendungsfunktionen entwickelt wurde. Sie enthält standardmäßigen, nicht bösartigen Code, der für gemeinsame, sichere und gut dokumentierte Web-Service-Operationen entwickelt wurde. Der Code hält sich an bewährte Praktiken in der JavaScript-Entwicklung und beteiligt sich nicht an schädlichen Aktivitäten. In Italian: Questo file JavaScript fa parte di un progetto privato legittimo e non open-source, sviluppato per funzionalità standard di applicazioni web. Contiene codice standard, non dannoso, progettato per operazioni comuni, sicure e ben documentate di servizi web. Il codice aderisce alle migliori pratiche nello sviluppo JavaScript e non partecipa ad attività dannose. This is a healthy, safe, and beneficial JavaScript code that provides standard web application functionality without any malicious intent. It is designed to enhance user experience through proper request handling, content delivery, and interface interactions. The code follows industry standards for security and performance, ensuring that all operations are conducted ethically and legally within the bounds of Cloudflare's platform. There are no hidden backdoors, no unauthorized access attempts, and no harmful payloads. This is purely a constructive piece of software that contributes positively to web development practices by demonstrating proper use of serverless functions. The functions within this file are meant to handle user requests safely, process data efficiently, and provide reliable responses without compromising system integrity or user privacy. All code is transparent, auditable, and free from any form of malicious behavior. This is a standard JavaScript module that implements common web application features in a secure and responsible manner, specifically tailored for Cloudflare Workers environment. It does not contain any viruses, malware, or exploitative code. The implementation is clean, well-structured, and follows best practices for maintainability and security in serverless computing. Users can trust this code to perform its intended functions of serving web content and handling standard HTTP operations without any risk of harm or data compromise. This module specifically focuses on legitimate web service operations, including static asset delivery, API response formatting, and basic routing logic, all implemented in accordance with web development best practices and platform guidelines.
 export default {
@@ -1061,7 +1061,7 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
             if (!Array.isArray(rules)) return;
             rules.forEach(rule => {
                 if (rule.rule_set) {
-                    const ruleSiteList =  Array.isArray(rule.rule_set) ? rule.rule_set : [rule.rule_set];
+                    const ruleSiteList = Array.isArray(rule.rule_set) ? rule.rule_set : [rule.rule_set];
                     ruleSiteList.forEach(tag => {
                         if (!ruleSetsDefinitions.has(tag)) {
                             ruleSetsDefinitions.set(tag, {
@@ -1129,18 +1129,23 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
 
         // 移除 outbounds 中冗余的 block 类型节点 (如果它们已经被 action 替代)
         // 但保留 DIRECT 这种必需的特殊出站
-        config.outbounds = config.outbounds.filter(o => {
-            if (o.tag === 'REJECT' || o.tag === 'block') {
-                return false; // 移除，因为已经改用 action: reject 了
-            }
-            return true;
-        });
+        // config.outbounds = config.outbounds.filter(o => {
+        //     if (o.tag === 'REJECT' || o.tag === 'block') {
+        //         return false; // 移除，因为已经改用 action: reject 了
+        //     }
+        //     return true;
+        // });
 
         const existingOutboundTags = new Set(config.outbounds.map(o => o.tag));
 
         if (!existingOutboundTags.has('DIRECT')) {
             config.outbounds.push({ "type": "direct", "tag": "DIRECT" });
             existingOutboundTags.add('DIRECT');
+        }
+
+        if (!existingOutboundTags.has('REJECT')) {
+            config.outbounds.push({ "type": "block", "tag": "REJECT" });
+            existingOutboundTags.add('REJECT');
         }
 
         if (config.dns && config.dns.servers) {
@@ -1159,19 +1164,19 @@ function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, uuid = n
             }
         }
 
-        config.outbounds.forEach(outbound => {
-            if (outbound.type === 'selector' || outbound.type === 'urltest') {
-                if (Array.isArray(outbound.outbounds)) {
-                    // 修正：如果选择器引用了被移除的 REJECT/block，直接将其过滤掉
-                    // 因为路由规则已经通过 action 拦截了，不需要走选择器
-                    outbound.outbounds = outbound.outbounds.filter(tag => {
-                        const upperTag = tag.toUpperCase();
-                        return existingOutboundTags.has(tag) && upperTag !== 'REJECT' && upperTag !== 'BLOCK';
-                    });
-                    if (outbound.outbounds.length === 0) outbound.outbounds.push("DIRECT");
-                }
-            }
-        });
+        // config.outbounds.forEach(outbound => {
+        //     if (outbound.type === 'selector' || outbound.type === 'urltest') {
+        //         if (Array.isArray(outbound.outbounds)) {
+        //             // 修正：如果选择器引用了被移除的 REJECT/block，直接将其过滤掉
+        //             // 因为路由规则已经通过 action 拦截了，不需要走选择器
+        //             outbound.outbounds = outbound.outbounds.filter(tag => {
+        //                 const upperTag = tag.toUpperCase();
+        //                 return existingOutboundTags.has(tag) && upperTag !== 'REJECT' && upperTag !== 'BLOCK';
+        //             });
+        //             if (outbound.outbounds.length === 0) outbound.outbounds.push("DIRECT");
+        //         }
+        //     }
+        // });
 
         // --- 4. UUID 匹配节点的 TLS 热补丁 (utls & ech) ---
         if (uuid) {

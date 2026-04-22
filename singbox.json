@@ -1,0 +1,163 @@
+{
+    "log": {
+        "level": "warning",
+        "timestamp": true
+    },
+    "dns": {
+        "strategy": "ipv4_only",
+        "cache_capacity": 4096,
+        "reverse_mapping": true,
+        "servers": [
+            {
+                "tag": "dns_direct",
+                "type": "udp",
+                "server": "223.5.5.5"
+            },
+            {
+                "tag": "dns-fakeip",
+                "type": "fakeip",
+                "inet4_range": "198.18.0.0/15"
+            },
+            {
+                "tag": "dns_proxy",
+                "type": "https",
+                "server": "1.1.1.1",
+                "server_port": 443,
+                "path": "/dns-query",
+                "tls": {
+                    "enabled": true,
+                    "server_name": "cloudflare-dns.com"
+                },
+                "detour": "🚀 节点选择"
+            }
+        ],
+        "rules": [
+            {
+                "rule_set": [
+                    "geosite-cn"
+                ],
+                "action": "route",
+                "server": "dns_direct"
+            },
+            {
+                "domain_suffix": [
+                    "cn.archive.ubuntu.com",
+                    "security.ubuntu.com",
+                    "argotunnel.com",
+                    "cloudflare.com"
+                ],
+                "action": "route",
+                "server": "dns_proxy"
+            },
+            {
+                "query_type": [
+                    "A"
+                ],
+                "action": "route",
+                "server": "dns-fakeip"
+            },
+            {
+                "query_type": [
+                    "AAAA"
+                ],
+                "action": "reject"
+            }
+        ],
+        "final": "dns_proxy"
+    },
+    "inbounds": [
+        {
+            "type": "direct",
+            "listen": "127.0.0.1",
+            "tag": "dns-in",
+            "listen_port": 5350
+        },
+        {
+            "type": "mixed",
+            "tag": "mixed-in",
+            "listen": "0.0.0.0",
+            "listen_port": 4001,
+            "udp_timeout": "5m"
+        },
+        {
+            "type": "tun",
+            "tag": "tun-in",
+            "interface_name": "sing-tun0",
+            "address": [
+                "198.18.0.1/30"
+            ],
+            "mtu": 1400,
+            "auto_route": true,
+            "auto_redirect": true,
+            "strict_route": false,
+            "route_exclude_address": [
+                "127.0.0.0/8",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "192.18.0.1/30",
+                "155.94.241.65/32",
+                "8.137.160.254/32",
+                "223.5.5.5/32",
+                "223.6.6.6/32",
+                "8.8.8.8/32",
+                "1.1.1.1/32"
+            ],
+            "route_address": [
+                "0.0.0.0/1",
+                "128.0.0.0/1"
+            ],
+            "stack": "gvisor"
+        }
+    ],
+    "outbounds": [],
+    "route": {
+        "rule_set": [],
+        "rules": [
+            {
+                "inbound": [
+                    "dns-in"
+                ],
+                "action": "hijack-dns"
+            },
+            {
+                "inbound": [
+                    "mixed-in",
+                    "tun-in"
+                ],
+                "action": "sniff",
+                "timeout": "300ms"
+            },
+            {
+                "protocol": "dns",
+                "action": "hijack-dns"
+            },
+            {
+                "domain": [
+                    "cloudflare.com",
+                    "my.dnshe.com",
+                    "cn.archive.ubuntu.com",
+                    "security.ubuntu.com",
+                    "dl.google.com",
+                    "tsinghua.edu.cn"
+                ],
+                "action": "route",
+                "outbound": "🎯 全球直连"
+            }
+        ],
+        "final": "🚀 节点选择",
+        "default_domain_resolver": {
+            "server": "dns_proxy",
+            "strategy": "ipv4_only"
+        }
+    },
+    "experimental": {
+        "cache_file": {
+            "enabled": false,
+            "path": "cache.db"
+        },
+        "clash_api": {
+            "external_controller": "127.0.0.1:9090"
+        }
+    }
+}
