@@ -148,7 +148,10 @@ async function handleApiUpdate(request, env) {
     }
 
     // Token 验证 (强制必选)
-    const token = request.headers.get('Authorization') || new URL(request.url).searchParams.get('token');
+    const url = new URL(request.url);
+    const token = request.headers.get('Authorization') || url.searchParams.get('token');
+    const mode = url.searchParams.get('mode');
+
     if (!env.TOKEN) {
         return new Response('Unauthorized: TOKEN environment variable not set', { status: 401 });
     }
@@ -158,7 +161,7 @@ async function handleApiUpdate(request, env) {
 
     let content = '';
     const contentType = request.headers.get('Content-Type') || '';
-    
+
     if (contentType.includes('multipart/form-data')) {
         // 支持文件上传格式 (例如 curl -F "file=@ADD.txt")
         const formData = await request.formData();
@@ -174,8 +177,18 @@ async function handleApiUpdate(request, env) {
     }
 
     if (env.KV) {
-        await env.KV.put('ADD.txt', content);
-        return new Response('Updated successfully', { status: 200 });
+        const invalidLines = validateProxyList(content);
+        if (invalidLines.length > 0) {
+            return new Response('Invalid format in lines:\n' + invalidLines.join('\n'), { status: 400 });
+        }
+
+        let finalContent = content;
+        if (mode === 'append') {
+            const existing = await env.KV.get('ADD.txt') || '';
+            finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
+        }
+        await env.KV.put('ADD.txt', finalContent);
+        return new Response('Updated successfully (' + (mode === 'append' ? 'Appended' : 'Overwritten') + ')', { status: 200 });
     } else {
         return new Response('KV not bound', { status: 500 });
     }
@@ -215,8 +228,20 @@ async function handleAdminRequest(request, env) {
 
         if (isAuth && action === 'save') {
             const content = formData.get('content');
+            const mode = formData.get('mode');
+
             if (env.KV) {
-                await env.KV.put('ADD.txt', content);
+                const invalidLines = validateProxyList(content);
+                if (invalidLines.length > 0) {
+                    return new Response('节点格式错误:\n' + invalidLines.join('\n'), { status: 400 });
+                }
+
+                let finalContent = content;
+                if (mode === 'append') {
+                    const existing = await env.KV.get('ADD.txt') || '';
+                    finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
+                }
+                await env.KV.put('ADD.txt', finalContent);
                 return new Response('Saved successfully', { status: 200 });
             }
         }
@@ -232,6 +257,37 @@ async function handleAdminRequest(request, env) {
 
 function splitLines(str) {
     return str.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('//'));
+}
+
+/**
+ * 校验节点清单格式
+ * @returns {string[]} 返回错误行信息列表，若为空则校验通过
+ */
+function validateProxyList(content) {
+    const lines = splitLines(content);
+    const invalidLines = [];
+    for (const line of lines) {
+        // 允许链接格式 (vless://, trojan://, ss://, etc.)
+        if (/^[a-z0-9-]+:\/\//i.test(line)) {
+            continue;
+        }
+
+        // 处理 "地址:端口#备注" 格式
+        const [addressPort] = line.split('#');
+        if (!addressPort.includes(':')) {
+            invalidLines.push(`"${line}" (缺少端口，需为 地址:端口 格式)`);
+            continue;
+        }
+
+        const parts = addressPort.split(':');
+        const portStr = parts[parts.length - 1].trim();
+        const port = parseInt(portStr);
+
+        if (isNaN(port) || port <= 0 || port > 65535) {
+            invalidLines.push(`"${line}" (端口无效: ${portStr})`);
+        }
+    }
+    return invalidLines;
 }
 
 function isValidBase64(str) {
@@ -378,7 +434,32 @@ function renderAdminPage(currentContent) {
             border-radius: 1.5rem;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
         }
-        .label { display: block; margin-bottom: 1rem; color: #94a3b8; font-size: 0.9rem; }
+        .label-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .label { color: #94a3b8; font-size: 0.9rem; }
+        .mode-selector {
+            display: flex;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 0.25rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .mode-option {
+            padding: 0.4rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .mode-option.active {
+            background: var(--primary);
+            color: white;
+        }
         textarea {
             width: 100%;
             height: 400px;
@@ -400,7 +481,9 @@ function renderAdminPage(currentContent) {
             display: flex;
             gap: 1rem;
             justify-content: flex-end;
+            align-items: center;
         }
+        .hint { color: #64748b; font-size: 0.8rem; flex-grow: 1; }
         .btn {
             padding: 0.7rem 1.5rem;
             border-radius: 0.75rem;
@@ -429,6 +512,7 @@ function renderAdminPage(currentContent) {
             transform: translateY(100px);
             transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             opacity: 0;
+            z-index: 1000;
         }
         #toast.show { transform: translateY(0); opacity: 1; }
     </style>
@@ -440,10 +524,17 @@ function renderAdminPage(currentContent) {
             <button class="btn btn-outline" onclick="location.href='/login'">退出</button>
         </header>
         <div class="card">
-            <span class="label">自定义优选 IP 列表 (格式: 地址:端口#备注)</span>
+            <div class="label-group">
+                <span class="label">自定义优选 IP 列表 (格式: 地址:端口#备注)</span>
+                <div class="mode-selector" id="modeSelector">
+                    <div class="mode-option active" data-mode="overwrite" onclick="setMode('overwrite')">覆盖模式</div>
+                    <div class="mode-option" data-mode="append" onclick="setMode('append')">追加模式</div>
+                </div>
+            </div>
             <textarea id="content" placeholder="例如: 1.1.1.1:443#Cloudflare">${currentContent}</textarea>
             <div class="actions">
-                <button class="btn btn-primary" onclick="save()">
+                <div class="hint" id="modeHint">当前模式：覆盖现有列表</div>
+                <button class="btn btn-primary" id="saveBtn" onclick="save()">
                     <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                     保存更改
                 </button>
@@ -453,16 +544,44 @@ function renderAdminPage(currentContent) {
     <div id="toast">保存成功！</div>
 
     <script>
+        let currentMode = 'overwrite';
+        const initialContent = document.getElementById('content').value;
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-option').forEach(opt => {
+                opt.classList.toggle('active', opt.dataset.mode === mode);
+            });
+            const hint = document.getElementById('modeHint');
+            const textarea = document.getElementById('content');
+            if (mode === 'append') {
+                hint.innerText = '当前模式：将输入的内容追加到现有列表末尾';
+                textarea.placeholder = '输入要追加的 IP 列表...';
+                // 如果是追加模式且内容是当前获取的内容，清空它以便用户输入新的内容
+                if (textarea.value.trim() === initialContent.trim()) {
+                    textarea.value = '';
+                }
+            } else {
+                hint.innerText = '当前模式：用输入的内容覆盖现有列表';
+                textarea.placeholder = '例如: 1.1.1.1:443#Cloudflare';
+                if (textarea.value.trim() === '') {
+                    textarea.value = initialContent;
+                }
+            }
+        }
+
         async function save() {
             const content = document.getElementById('content').value;
-            const btn = document.querySelector('.btn-primary');
+            const btn = document.getElementById('saveBtn');
             btn.disabled = true;
+            const originalHtml = btn.innerHTML;
             btn.innerHTML = '正在保存...';
 
             try {
                 const formData = new FormData();
                 formData.append('action', 'save');
                 formData.append('content', content);
+                formData.append('mode', currentMode);
 
                 const res = await fetch('/admin', {
                     method: 'POST',
@@ -470,22 +589,30 @@ function renderAdminPage(currentContent) {
                 });
 
                 if (res.ok) {
-                    showToast();
+                    showToast(currentMode === 'append' ? '追加成功！' : '保存成功！');
+                    if (currentMode === 'append') {
+                        // 追加成功后建议刷新或切换回覆盖模式查看结果
+                        setTimeout(() => location.reload(), 1500);
+                    }
                 } else {
-                    alert('保存失败: ' + res.statusText);
+                    const errorMsg = await res.text();
+                    showToast(errorMsg, true);
                 }
             } catch (e) {
-                alert('保存出错: ' + e.message);
+                showToast('保存出错: ' + e.message, true);
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg> 保存更改';
+                btn.innerHTML = originalHtml;
             }
         }
 
-        function showToast() {
+        function showToast(msg, isError = false) {
             const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.background = isError ? '#ef4444' : 'var(--success)';
+            toast.style.boxShadow = isError ? '0 10px 15px -3px rgba(239, 68, 68, 0.4)' : '0 10px 15px -3px rgba(34, 197, 94, 0.4)';
             toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
+            setTimeout(() => toast.classList.remove('show'), 5000);
         }
     </script>
 </body>
