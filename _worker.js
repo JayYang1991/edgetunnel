@@ -197,6 +197,10 @@ export default {
                     const 订阅TOKEN = await MD5MD5(host + userID), 作为优选订阅生成器 = ['1', 'true'].includes(env.BEST_SUB) && url.searchParams.get('host') === 'example.com' && url.searchParams.get('uuid') === '00000000-0000-4000-8000-000000000000' && UA.toLowerCase().includes('tunnel (https://github.com/cmliu/edge');
                     if (url.searchParams.get('token') === 订阅TOKEN || 作为优选订阅生成器) {
                         config_JSON = await 读取config_JSON(env, host, userID);
+                        if (url.searchParams.get('mode') === 'tunnel') {
+                            config_JSON.UUID = env.P_UUID || config_JSON.UUID;
+                            config_JSON.HOSTS = env.P_HOST ? [env.P_HOST] : config_JSON.HOSTS;
+                        }
                         if (作为优选订阅生成器) ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Get_Best_SUB', config_JSON, false));
                         else ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Get_SUB', config_JSON));
                         const ua = UA.toLowerCase();
