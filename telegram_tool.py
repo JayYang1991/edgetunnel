@@ -36,35 +36,41 @@ class DownloadProgress:
     def __init__(self, filename, total_tasks=1):
         self.filename = filename
         self.start_time = time.time()
-        self.last_update = 0
+        self.last_update_time = self.start_time
+        self.last_update_bytes = 0
         self.total_tasks = total_tasks
         self.call_count = 0 
-
+        self.instant_speed = 0
     def callback(self, current, total):
         self.show_progress(current, total)
 
     def show_progress(self, current, total):
         self.call_count += 1
+        now = time.time()
         
         # 确保关键节点（开始、结束）总是显示
         is_important = (current >= total or current == 0 or self.call_count <= 1)
         
-        if self.total_tasks > 1 and not is_important:
-            # 并发模式下，根据任务数动态调整刷新率，避免过快刷新导致闪烁
-            if self.call_count % max(min(self.total_tasks * 2, 20), 5) != 0:
-                return
-
-        now = time.time()
-        # 频率控制：非关键节点每 0.5 秒最多刷新一次
-        if not is_important and now - self.last_update < 0.5:
+        # 频率控制：强制 1 秒左右刷新一次，避免控制台由于高频打印而卡顿
+        if not is_important and now - self.last_update_time < 1.0:
             return
         
-        self.last_update = now
-        elapsed = now - self.start_time
-        speed = current / elapsed if elapsed > 0 else 0
-        percentage = current * 100 / total if total > 0 else 0
+        # 计算即时速度 (当前瞬时速度)
+        interval = now - self.last_update_time
+        if interval > 0:
+            # 如果是第一次或者刚恢复，直接使用 current 计算是不准的（因为包含历史进度）
+            # 我们只计算自上次更新以来新下载的字节数
+            if self.last_update_bytes > 0:
+                # 只有在 current 确实增加了的情况下才更新速度，避免断连重试时速度显示为 0
+                new_bytes = current - self.last_update_bytes
+                if new_bytes >= 0:
+                    self.instant_speed = new_bytes / interval
+            
+        self.last_update_time = now
+        self.last_update_bytes = current
         
-        speed_str = self.format_size(speed) + "/s"
+        percentage = current * 100 / total if total > 0 else 0
+        speed_str = self.format_size(self.instant_speed) + "/s"
         current_str = self.format_size(current)
         total_str = self.format_size(total)
         
