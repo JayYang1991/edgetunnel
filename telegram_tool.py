@@ -84,11 +84,11 @@ class DownloadProgress:
             size /= 1024
         return f"{size:.2f}TB"
 
-async def parallel_download(client, message, save_path, progress, concurrency=4):
+async def parallel_download(client, message, save_path, progress, concurrency=4, chunk_size=512*1024):
     """底层 MTProtoSender 并发下载实现 (FastTelethon 原理，极其稳定且极速)"""
     file_size = message.file.size
-    # 缩小分块大小到 128KB，避免在弱网环境下触发超时 (128KB 在 20KB/s 下约 6.4s 完成)
-    chunk_size = 128 * 1024  
+    # 使用传入的 chunk_size，确保是 1024 的倍数
+    chunk_size = (chunk_size // 1024) * 1024 or 1024
     
     dc_id, location = utils.get_input_location(message.media)
     print(f"  [调试] 并发下载初始化: 获取媒体位置成功 (DC: {dc_id})")
@@ -173,8 +173,8 @@ async def parallel_download(client, message, save_path, progress, concurrency=4)
                         # Telegram 要求 limit 必须是 1024 的倍数，向上取整以符合协议规范
                         request_limit = (limit + 1023) // 1024 * 1024
                         req = GetFileRequest(location, offset=offset, limit=request_limit)
-                        # 将超时增加到 30 秒，容忍极端慢速网络
-                        result = await asyncio.wait_for(sender.send(req), timeout=30)
+                        # 将超时大幅增加到 120 秒，以支持 512KB 大分块在慢速网络下的传输
+                        result = await asyncio.wait_for(sender.send(req), timeout=120)
                         
                         # 只取我们需要的部分，多出来的凑整字节丢弃
                         chunk_data = result.bytes[:limit]
@@ -232,7 +232,7 @@ async def parallel_download(client, message, save_path, progress, concurrency=4)
             except:
                 pass
 
-async def download_task(client, message, output_path, semaphore, task_id, total_tasks, use_parallel=True):
+async def download_task(client, message, output_path, semaphore, task_id, total_tasks, use_parallel=True, chunk_size=512*1024, concurrency=4):
     """单个文件下载任务调度与重试"""
     async with semaphore:
         _, file_name = await get_media_info(message)
@@ -259,14 +259,13 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
             try:
                 progress = DownloadProgress(file_name, total_tasks=total_tasks)
                 if file_size > BIG_FILE_THRESHOLD:
-                    # 统一走我们的并发下载逻辑，区别仅在于线程数
-                    # 并发模式用 4 线程，标准模式用 1 线程（享受小分块和强力重试的稳定性）
-                    concurrency = 4 if use_parallel else 1
+                    # 并发模式用用户指定的线程数，标准模式用 1 线程
+                    actual_concurrency = concurrency if use_parallel else 1
                     try:
-                        await parallel_download(client, message, save_file, progress, concurrency=concurrency)
+                        await parallel_download(client, message, save_file, progress, concurrency=actual_concurrency, chunk_size=chunk_size)
                     except Exception as e:
                         print(f"\n[{task_id}] 下载遇到困难，尝试回退到单通道安全模式继续断点续传... ({e})")
-                        await parallel_download(client, message, save_file, progress, concurrency=1)
+                        await parallel_download(client, message, save_file, progress, concurrency=1, chunk_size=chunk_size)
                 else:
                     await client.download_media(message, save_file, progress_callback=progress.callback)
                 return True
@@ -278,7 +277,7 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
                     print(f"\n[{task_id}] 下载彻底失败: {file_name} ({e})")
                     return False
 
-async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids=None, file_filter=None, use_parallel=True):
+async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids=None, file_filter=None, use_parallel=True, chunk_size=512*1024, concurrency=4):
     """主下载调度逻辑"""
     abs_output_path = os.path.abspath(output_path)
     if not os.path.exists(abs_output_path):
@@ -338,7 +337,8 @@ async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids
     sem = asyncio.Semaphore(FILE_CONCURRENCY)
     tasks = []
     for i, msg in enumerate(pending_messages):
-        tasks.append(download_task(client, msg, abs_output_path, sem, i+1, len(pending_messages), use_parallel=use_parallel))
+        tasks.append(download_task(client, msg, abs_output_path, sem, i+1, len(pending_messages), 
+                                 use_parallel=use_parallel, chunk_size=chunk_size, concurrency=concurrency))
     
     results = await asyncio.gather(*tasks)
     success_count = sum(1 for r in results if r)
@@ -417,6 +417,8 @@ async def main():
     dl_parser.add_argument("--ids", type=int, nargs="+", help="指定要下载的消息 ID 列表")
     dl_parser.add_argument("--output", "-o", type=str, default="./downloads", help="下载保存路径")
     dl_parser.add_argument("--mode", "-m", choices=["parallel", "standard"], default="parallel", help="大文件下载模式: parallel (并行, 默认) 或 standard (标准)")
+    dl_parser.add_argument("--chunk-size", type=int, default=512, help="分块大小 (KB, 默认: 512)")
+    dl_parser.add_argument("--concurrency", "-c", type=int, default=4, help="并发线程数 (默认: 4)")
 
     args = parser.parse_args()
 
@@ -439,7 +441,9 @@ async def main():
             await show_messages(client, args.id, args.limit)
         elif args.command == "download":
             use_parallel = (args.mode == "parallel")
-            await download_files(client, args.id, args.name, args.limit, args.output, args.ids, args.filter, use_parallel=use_parallel)
+            chunk_size = args.chunk_size * 1024
+            await download_files(client, args.id, args.name, args.limit, args.output, args.ids, args.filter, 
+                               use_parallel=use_parallel, chunk_size=chunk_size, concurrency=args.concurrency)
         else:
             parser.print_help()
 
