@@ -232,7 +232,7 @@ async def parallel_download(client, message, save_path, progress, concurrency=4)
             except:
                 pass
 
-async def download_task(client, message, output_path, semaphore, task_id, total_tasks):
+async def download_task(client, message, output_path, semaphore, task_id, total_tasks, use_parallel=True):
     """单个文件下载任务调度与重试"""
     async with semaphore:
         _, file_name = await get_media_info(message)
@@ -258,7 +258,7 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
         for attempt in range(2):
             try:
                 progress = DownloadProgress(file_name, total_tasks=total_tasks)
-                if file_size > BIG_FILE_THRESHOLD:
+                if file_size > BIG_FILE_THRESHOLD and use_parallel:
                     try:
                         await parallel_download(client, message, save_file, progress)
                     except Exception as e:
@@ -276,7 +276,7 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
                     print(f"\n[{task_id}] 下载彻底失败: {file_name} ({e})")
                     return False
 
-async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids=None, file_filter=None):
+async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids=None, file_filter=None, use_parallel=True):
     """主下载调度逻辑"""
     abs_output_path = os.path.abspath(output_path)
     if not os.path.exists(abs_output_path):
@@ -336,7 +336,7 @@ async def download_files(client, chat_id, chat_name, limit, output_path, msg_ids
     sem = asyncio.Semaphore(FILE_CONCURRENCY)
     tasks = []
     for i, msg in enumerate(pending_messages):
-        tasks.append(download_task(client, msg, abs_output_path, sem, i+1, len(pending_messages)))
+        tasks.append(download_task(client, msg, abs_output_path, sem, i+1, len(pending_messages), use_parallel=use_parallel))
     
     results = await asyncio.gather(*tasks)
     success_count = sum(1 for r in results if r)
@@ -414,6 +414,7 @@ async def main():
     dl_parser.add_argument("--limit", "-l", type=int, default=10, help="下载文件数量限制 (默认: 10)")
     dl_parser.add_argument("--ids", type=int, nargs="+", help="指定要下载的消息 ID 列表")
     dl_parser.add_argument("--output", "-o", type=str, default="./downloads", help="下载保存路径")
+    dl_parser.add_argument("--mode", "-m", choices=["parallel", "standard"], default="parallel", help="大文件下载模式: parallel (并行, 默认) 或 standard (标准)")
 
     args = parser.parse_args()
 
@@ -435,7 +436,8 @@ async def main():
         elif args.command == "show":
             await show_messages(client, args.id, args.limit)
         elif args.command == "download":
-            await download_files(client, args.id, args.name, args.limit, args.output, args.ids, args.filter)
+            use_parallel = (args.mode == "parallel")
+            await download_files(client, args.id, args.name, args.limit, args.output, args.ids, args.filter, use_parallel=use_parallel)
         else:
             parser.print_help()
 
