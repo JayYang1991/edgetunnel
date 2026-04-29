@@ -258,12 +258,14 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
         for attempt in range(2):
             try:
                 progress = DownloadProgress(file_name, total_tasks=total_tasks)
-                if file_size > BIG_FILE_THRESHOLD and use_parallel:
+                if file_size > BIG_FILE_THRESHOLD:
+                    # 统一走我们的并发下载逻辑，区别仅在于线程数
+                    # 并发模式用 4 线程，标准模式用 1 线程（享受小分块和强力重试的稳定性）
+                    concurrency = 4 if use_parallel else 1
                     try:
-                        await parallel_download(client, message, save_file, progress)
+                        await parallel_download(client, message, save_file, progress, concurrency=concurrency)
                     except Exception as e:
-                        print(f"\n[{task_id}] 并发下载失败，尝试回退到单线程标准模式并继续断点续传... ({e})")
-                        # 通过设置 concurrency=1，使其以单线程顺序下载剩余块，实现标准的断点续传且不破坏文件
+                        print(f"\n[{task_id}] 下载遇到困难，尝试回退到单通道安全模式继续断点续传... ({e})")
                         await parallel_download(client, message, save_file, progress, concurrency=1)
                 else:
                     await client.download_media(message, save_file, progress_callback=progress.callback)
