@@ -3,8 +3,12 @@ import os
 import argparse
 import asyncio
 import time
+import logging
 from telethon import TelegramClient, utils
+from telethon.network.mtprotosender import MTProtoSender
+from telethon.tl.functions.upload import GetFileRequest
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
+from telethon.errors import AuthKeyNotFound
 
 # --- API 配置 ---
 # 请设置环境变量 TG_API_ID 和 TG_API_HASH
@@ -42,16 +46,16 @@ class DownloadProgress:
     def show_progress(self, current, total):
         self.call_count += 1
         
-        # 确保关键节点总是显示
-        is_important = (current >= total or self.call_count <= 1)
+        # 确保关键节点（开始、结束）总是显示
+        is_important = (current >= total or current == 0 or self.call_count <= 1)
         
         if self.total_tasks > 1 and not is_important:
-            # 根据任务数动态调整刷新率
-            if self.call_count % min(self.total_tasks, 5) != 0:
+            # 并发模式下，根据任务数动态调整刷新率，避免过快刷新导致闪烁
+            if self.call_count % max(min(self.total_tasks * 2, 20), 5) != 0:
                 return
 
         now = time.time()
-        # 频率防抖
+        # 频率控制：非关键节点每 0.5 秒最多刷新一次
         if not is_important and now - self.last_update < 0.5:
             return
         
@@ -65,10 +69,11 @@ class DownloadProgress:
         total_str = self.format_size(total)
         
         if self.total_tasks == 1:
+            # 单文件模式：使用 \r 实现原地刷新
             print(f"\r{percentage:5.1f}% | {current_str:>9} / {total_str:<9} | {speed_str:>10} | {self.filename[:30]}", end="", flush=True)
             if current >= total: print()
         else:
-            # 并发模式下显示简化的进度行
+            # 并发模式：打印新行
             print(f"[{percentage:5.1f}%] {speed_str:>10} | {self.filename[:30]}")
 
     @staticmethod
@@ -79,47 +84,153 @@ class DownloadProgress:
             size /= 1024
         return f"{size:.2f}TB"
 
-async def parallel_download(client, message, save_path, progress):
-    """大文件分块并发下载实现"""
+async def parallel_download(client, message, save_path, progress, concurrency=4):
+    """底层 MTProtoSender 并发下载实现 (FastTelethon 原理，极其稳定且极速)"""
     file_size = message.file.size
-    chunk_size = 512 * 1024
-    concurrency = 4  # 降低单文件内部并发，确保总连接数可控
+    # 缩小分块大小到 128KB，避免在弱网环境下触发超时 (128KB 在 20KB/s 下约 6.4s 完成)
+    chunk_size = 128 * 1024  
     
-    with open(save_path, 'wb') as f:
-        f.truncate(file_size)
+    dc_id, location = utils.get_input_location(message.media)
+    print(f"  [调试] 并发下载初始化: 获取媒体位置成功 (DC: {dc_id})")
     
-    f = open(save_path, 'r+b')
-    semaphore = asyncio.Semaphore(concurrency)
-    downloaded_bytes = 0
-    lock = asyncio.Lock()
-
-    async def download_chunk(offset, limit):
-        nonlocal downloaded_bytes
-        async with semaphore:
-            # 增加块级重试机制
-            for attempt in range(3):
-                try:
-                    async for chunk in client.iter_download(message, offset=offset, limit=limit, request_size=limit):
-                        if chunk:
-                            async with lock:
-                                f.seek(offset)
-                                f.write(chunk)
-                                downloaded_bytes += len(chunk)
-                                progress.show_progress(downloaded_bytes, file_size)
-                            return
-                except Exception as e:
-                    if attempt == 2: raise e
-                    await asyncio.sleep(1)
-
-    tasks = [download_chunk(o, min(chunk_size, file_size - o)) for o in range(0, file_size, chunk_size)]
-    
+    # 1. 确保授权已导出到目标 DC
+    print(f"  [调试] 正在请求目标 DC 的授权...")
     try:
-        await asyncio.gather(*tasks)
+        # 使用 wait_for 替代 asyncio.timeout 以确保在 python 3.10+ 的兼容性，防止授权死锁
+        exported = await asyncio.wait_for(client._borrow_exported_sender(dc_id), timeout=15)
+        auth_key = exported.auth_key
+        await client._return_exported_sender(exported)
+        print(f"  [调试] 目标 DC 授权获取成功")
+    except asyncio.TimeoutError:
+        print(f"  [调试] 获取 DC 授权超时，可能存在网络阻塞或内部死锁")
+        raise Exception("DC 授权获取超时")
     except Exception as e:
-        # 并发失败则回退到原生下载
-        await client.download_media(message, save_path, progress_callback=progress.callback)
+        print(f"  [调试] 获取 DC 授权失败: {e}")
+        raise e
+    
+    dc = await client._get_dc(dc_id)
+    print(f"  [调试] 获取 DC 网络配置成功: {dc.ip_address}:{dc.port}")
+        
+    senders = []
+    f = None
+    try:
+        # 2. 创建连接池
+        print(f"  [调试] 正在建立 {concurrency} 个并发连接通道...")
+        for i in range(concurrency):
+            sender = MTProtoSender(auth_key, loggers=client._log)
+            # 使用较短的超时时间，避免长时间挂起
+            connection = client._connection(dc.ip_address, dc.port, dc.id, loggers=client._log, proxy=client._proxy)
+            await asyncio.wait_for(sender.connect(connection), timeout=10)
+            senders.append(sender)
+            print(f"  [调试] 通道 {i+1} 建立成功")
+            
+        # 3. 预分配文件或恢复进度
+        state_file = f"{save_path}.state"
+        downloaded_chunks = set()
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as sf:
+                    for line in sf:
+                        if line.strip():
+                            downloaded_chunks.add(int(line.strip()))
+                print(f"  [调试] 发现历史下载进度，已恢复 {len(downloaded_chunks)} 个数据块")
+            except Exception as e:
+                print(f"  [调试] 读取进度文件失败: {e}")
+                
+        if not os.path.exists(save_path):
+            print(f"  [调试] 正在初始化本地文件 (预分配空间)...")
+            with open(save_path, 'wb') as tmp_f:
+                tmp_f.truncate(file_size)
+            
+        f = open(save_path, 'r+b')
+        downloaded_bytes = 0
+        lock = asyncio.Lock()
+        
+        print(f"  [调试] 任务分块就绪，工作协程启动...")
+        queue = asyncio.Queue()
+        for offset in range(0, file_size, chunk_size):
+            limit = min(chunk_size, file_size - offset)
+            if offset in downloaded_chunks:
+                downloaded_bytes += limit
+                continue
+            queue.put_nowait((offset, limit))
+            
+        progress.show_progress(downloaded_bytes, file_size)
+            
+        async def worker_task(sender, worker_id):
+            nonlocal downloaded_bytes
+            while not queue.empty():
+                try:
+                    offset, limit = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                    
+                success = False
+                for attempt in range(10): # 增加重试次数，提高容错率
+                    try:
+                        # 增加一个小延迟，降低服务端压力
+                        await asyncio.sleep(0.05 * worker_id)
+                        # Telegram 要求 limit 必须是 1024 的倍数，向上取整以符合协议规范
+                        request_limit = (limit + 1023) // 1024 * 1024
+                        req = GetFileRequest(location, offset=offset, limit=request_limit)
+                        # 将超时增加到 30 秒，容忍极端慢速网络
+                        result = await asyncio.wait_for(sender.send(req), timeout=30)
+                        
+                        # 只取我们需要的部分，多出来的凑整字节丢弃
+                        chunk_data = result.bytes[:limit]
+                        if not chunk_data:
+                            raise Exception("收到空数据块")
+                            
+                        async with lock:
+                            f.seek(offset)
+                            f.write(chunk_data)
+                            downloaded_bytes += len(chunk_data)
+                            with open(state_file, 'a') as sf:
+                                sf.write(f"{offset}\n")
+                            progress.show_progress(downloaded_bytes, file_size)
+                            
+                        success = True
+                        break
+                    except Exception as e:
+                        # 出现异常时采用指数退避策略
+                        wait_time = min(2 ** attempt, 10)
+                        print(f"  [调试] 分块 {offset} 尝试 {attempt+1} 失败: {e}")
+                        
+                        if "closed the connection" in str(e) or isinstance(e, asyncio.TimeoutError):
+                            # 连接被关或超时，尝试彻底重连
+                            try:
+                                await sender.disconnect()
+                                await asyncio.sleep(wait_time)
+                                await asyncio.wait_for(sender.connect(client._connection(dc.ip_address, dc.port, dc.id, loggers=client._log, proxy=client._proxy)), timeout=15)
+                            except:
+                                pass
+                        else:
+                            await asyncio.sleep(wait_time)
+                        
+                if not success:
+                    raise Exception(f"分块 {offset} 失败")
+
+        tasks = [asyncio.create_task(worker_task(s, i)) for i, s in enumerate(senders)]
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        
+        for t in pending: t.cancel()
+        if pending: await asyncio.gather(*pending, return_exceptions=True)
+            
+        for t in done:
+            if not t.cancelled() and t.exception():
+                raise t.exception()
+                
+        # 下载完成，删除状态文件
+        if os.path.exists(state_file):
+            os.remove(state_file)
+                
     finally:
-        f.close()
+        if f: f.close()
+        for s in senders:
+            try:
+                await s.disconnect()
+            except:
+                pass
 
 async def download_task(client, message, output_path, semaphore, task_id, total_tasks):
     """单个文件下载任务调度与重试"""
@@ -129,17 +240,31 @@ async def download_task(client, message, output_path, semaphore, task_id, total_
         file_name = "".join([c for c in file_name if c not in '/\\:*?"<>|']).strip()
         
         save_file = os.path.join(output_path, file_name)
+        state_file = f"{save_file}.state"
+        file_size = message.file.size or 0
+        
         if os.path.exists(save_file):
-            save_file = os.path.join(output_path, f"{message.id}_{file_name}")
+            if not os.path.exists(state_file):
+                if os.path.getsize(save_file) == file_size:
+                    print(f"[{task_id}/{total_tasks}] 文件已存在且完整，跳过: {file_name}")
+                    return True
+                else:
+                    save_file = os.path.join(output_path, f"{message.id}_{file_name}")
+            else:
+                pass # 有 state 文件，准备断点续传
 
         print(f"[{task_id}/{total_tasks}] 准备下载: {file_name}")
         
         for attempt in range(2):
             try:
                 progress = DownloadProgress(file_name, total_tasks=total_tasks)
-                file_size = message.file.size or 0
                 if file_size > BIG_FILE_THRESHOLD:
-                    await parallel_download(client, message, save_file, progress)
+                    try:
+                        await parallel_download(client, message, save_file, progress)
+                    except Exception as e:
+                        print(f"\n[{task_id}] 并发下载失败，尝试回退到单线程标准模式并继续断点续传... ({e})")
+                        # 通过设置 concurrency=1，使其以单线程顺序下载剩余块，实现标准的断点续传且不破坏文件
+                        await parallel_download(client, message, save_file, progress, concurrency=1)
                 else:
                     await client.download_media(message, save_file, progress_callback=progress.callback)
                 return True
