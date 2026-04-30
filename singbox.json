@@ -134,7 +134,7 @@
             },
             {
                 "domain": [
-                    "cloudflare.com",
+                    "dash.cloudflare.com",
                     "my.dnshe.com",
                     "cn.archive.ubuntu.com",
                     "security.ubuntu.com",
