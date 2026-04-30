@@ -184,7 +184,15 @@ async def parallel_download(client, message, save_path, progress, concurrency=4,
                         
                         req = GetFileRequest(location, offset=offset, limit=request_limit)
                         # 将超时大幅增加到 120 秒，以支持 512KB 大分块在慢速网络下的传输
-                        result = await asyncio.wait_for(sender.send(req), timeout=120)
+                        try:
+                            result = await asyncio.wait_for(sender.send(req), timeout=120)
+                        except Exception as e:
+                            if "limit" in str(e).lower():
+                                # 如果对齐请求被拒绝 (如越界)，尝试使用原始精确 limit 再次请求
+                                req = GetFileRequest(location, offset=offset, limit=limit)
+                                result = await asyncio.wait_for(sender.send(req), timeout=120)
+                            else:
+                                raise e
                         
                         # 只取我们需要的部分，多出来的凑整字节丢弃
                         chunk_data = result.bytes[:limit]
