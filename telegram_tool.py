@@ -93,8 +93,8 @@ class DownloadProgress:
 async def parallel_download(client, message, save_path, progress, concurrency=4, chunk_size=512*1024):
     """底层 MTProtoSender 并发下载实现 (FastTelethon 原理，极其稳定且极速)"""
     file_size = message.file.size
-    # 使用传入的 chunk_size，确保是 1024 的倍数
-    chunk_size = (chunk_size // 1024) * 1024 or 1024
+    # 确保 chunk_size 是 4096 (4KB) 的倍数，以满足大文件下载的强制对齐要求
+    chunk_size = (chunk_size // 4096) * 4096 or 4096
     
     dc_id, location = utils.get_input_location(message.media)
     print(f"  [调试] 并发下载初始化: 获取媒体位置成功 (DC: {dc_id})")
@@ -176,8 +176,12 @@ async def parallel_download(client, message, save_path, progress, concurrency=4,
                     try:
                         # 增加一个小延迟，降低服务端压力
                         await asyncio.sleep(0.05 * worker_id)
-                        # Telegram 要求 limit 必须是 1024 的倍数，向上取整以符合协议规范
-                        request_limit = (limit + 1023) // 1024 * 1024
+                        # Telegram 要求 limit 必须是 1024 的倍数，针对大文件建议 4096 (4KB) 对齐以提高兼容性
+                        alignment = 4096
+                        request_limit = (limit + (alignment - 1)) // alignment * alignment
+                        # 确保请求不会超过 Telegram 允许的最大 512KB 限制
+                        request_limit = min(request_limit, 512 * 1024)
+                        
                         req = GetFileRequest(location, offset=offset, limit=request_limit)
                         # 将超时大幅增加到 120 秒，以支持 512KB 大分块在慢速网络下的传输
                         result = await asyncio.wait_for(sender.send(req), timeout=120)
