@@ -80,6 +80,30 @@ python telegram_tool.py download --id 12345678 --ids 54321 54325
 python telegram_tool.py download -n "学习资料" -o "/home/user/downloads/study"
 ```
 
+### 4. 获取 Chat ID (新增)
+这是为了方便用户获取自己的 `Chat ID` 或机器人的 ID，以便配置通知功能。
+
+#### A. 获取个人 Chat ID
+获取当前登录账号的详细信息（包括 ID）：
+```bash
+python telegram_tool.py info --me
+```
+
+#### B. 解析用户名获取 ID
+获取指定用户、机器人或频道的 ID：
+```bash
+python telegram_tool.py info --name @BotFather
+```
+
+#### C. 通过 Bot Token 获取互动 ID
+如果您已经创建了机器人，但不确定自己的 `Chat ID`：
+1. 先在 Telegram 中向您的机器人发送一条消息。
+2. 运行以下命令（替换为您的 Token）：
+```bash
+python telegram_tool.py info --token "123456:ABC-DEF"
+```
+脚本将从最新的互动记录中提取 `Chat ID`。
+
 ## ⚙️ 参数详解
 
 | 参数 | 缩写 | 描述 |
@@ -87,12 +111,15 @@ python telegram_tool.py download -n "学习资料" -o "/home/user/downloads/stud
 | `list` | - | 子命令：列出最近的聊天 |
 | `show` | - | 子命令：展示聊天资源列表 |
 | `download` | - | 子命令：执行下载任务 |
+| `info` | - | 子命令：获取 Chat ID 或用户信息 |
 | `--id` | - | 目标聊天 ID |
-| `--name` | `-n` | 目标聊天名称关键字（模糊匹配） |
+| `--name` | `-n` | 目标聊天名称关键字 / 用户名 |
 | `--limit` | `-l` | 数量限制（预览条数或下载个数） |
 | `--filter` | `-f` | 文件名过滤关键字 |
 | `--ids` | - | 指定下载的消息 ID 列表（空格分隔） |
 | `--output` | `-o` | 下载保存路径（默认 `./downloads`） |
+| `--me` | - | (info) 显示当前登录用户的信息 |
+| `--token` | `-t` | (info) 通过 Bot Token 获取最新互动 ID |
 
 ## 💡 注意事项
 

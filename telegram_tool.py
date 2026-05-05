@@ -9,6 +9,7 @@ from telethon.network.mtprotosender import MTProtoSender
 from telethon.tl.functions.upload import GetFileRequest
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
 from telethon.errors import AuthKeyNotFound
+import requests
 
 # --- API 配置 ---
 # 请设置环境变量 TG_API_ID 和 TG_API_HASH
@@ -426,6 +427,75 @@ async def show_messages(client, chat_id, limit):
     
     print("-" * 80)
 
+async def get_info(client, name=None, me=False, token=None):
+    """获取用户信息、聊天 ID 或通过 Bot Token 获取更新"""
+    if me:
+        print("\n正在获取当前登录用户信息...")
+        me_entity = await client.get_me()
+        print(f"名称: {me_entity.first_name} {me_entity.last_name or ''}")
+        print(f"用户名: @{me_entity.username if me_entity.username else 'N/A'}")
+        print(f"Chat ID: {me_entity.id}")
+        print("-" * 30)
+    
+    if name:
+        print(f"\n正在解析名称 '{name}'...")
+        try:
+            entity = await client.get_entity(name)
+            entity_type = "User"
+            if hasattr(entity, 'bot') and entity.bot:
+                entity_type = "Bot"
+            elif hasattr(entity, 'broadcast') and entity.broadcast:
+                entity_type = "Channel"
+            elif hasattr(entity, 'megagroup') and entity.megagroup:
+                entity_type = "Supergroup"
+            
+            print(f"类型: {entity_type}")
+            print(f"ID: {entity.id}")
+            if hasattr(entity, 'username') and entity.username:
+                print(f"用户名: @{entity.username}")
+            print("-" * 30)
+        except Exception as e:
+            print(f"错误: 无法解析 '{name}' ({e})")
+
+    if token:
+        print(f"\n正在通过 Bot Token 获取最新互动信息...")
+        url = f"https://api.telegram.org/bot{token}/getUpdates"
+        try:
+            # 使用 asyncio.to_thread 进行非阻塞请求 (Python 3.9+)
+            response = await asyncio.to_thread(requests.get, url, timeout=10)
+            data = response.json()
+            if not data.get("ok"):
+                print(f"错误: Bot API 返回失败 - {data.get('description')}")
+                return
+
+            results = data.get("result", [])
+            if not results:
+                print("提示: 尚未发现任何互动记录。请先向机器人发送一条消息，然后再次运行此命令。")
+                print(f"接口地址: {url}")
+            else:
+                # 获取最后一条消息的 chat info
+                last_update = results[-1]
+                chat = None
+                if "message" in last_update:
+                    chat = last_update["message"]["chat"]
+                elif "callback_query" in last_update:
+                    chat = last_update["callback_query"]["message"]["chat"]
+                elif "my_chat_member" in last_update:
+                    chat = last_update["my_chat_member"]["chat"]
+
+                if chat:
+                    print(f"发现最新互动聊天:")
+                    print(f"  标题/名称: {chat.get('title') or chat.get('first_name', 'N/A')}")
+                    print(f"  类型: {chat.get('type')}")
+                    print(f"  Chat ID: {chat.get('id')}")
+                    print(f"  用户名: @{chat.get('username', 'N/A')}")
+                    print("-" * 30)
+                    print(f"提示: 请将上述 'Chat ID' 填入 edgetunnel 的配置中。")
+                else:
+                    print("错误: 无法在更新中解析到有效的聊天信息。")
+        except Exception as e:
+            print(f"错误: 调用 Bot API 失败 ({e})")
+
 async def main():
     parser = argparse.ArgumentParser(description="Telegram 助手: 列表获取、预览与下载")
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
@@ -449,6 +519,12 @@ async def main():
     dl_parser.add_argument("--mode", "-m", choices=["parallel", "standard"], default="parallel", help="大文件下载模式: parallel (并行, 默认) 或 standard (标准)")
     dl_parser.add_argument("--chunk-size", type=int, default=512, help="分块大小 (KB, 默认: 512)")
     dl_parser.add_argument("--concurrency", "-c", type=int, default=4, help="并发线程数 (默认: 4)")
+
+    # Info 命令
+    info_parser = subparsers.add_parser("info", help="获取 Chat ID 或用户信息")
+    info_parser.add_argument("--me", action="store_true", help="显示当前登录用户的信息 (获取个人 Chat ID)")
+    info_parser.add_argument("--name", "-n", type=str, help="查询指定用户名/机器人的 ID")
+    info_parser.add_argument("--token", "-t", type=str, help="通过 Bot Token 获取最新的互动 Chat ID")
 
     args = parser.parse_args()
 
@@ -474,6 +550,8 @@ async def main():
             chunk_size = args.chunk_size * 1024
             await download_files(client, args.id, args.name, args.limit, args.output, args.ids, args.filter, 
                                use_parallel=use_parallel, chunk_size=chunk_size, concurrency=args.concurrency)
+        elif args.command == "info":
+            await get_info(client, name=args.name, me=args.me, token=args.token)
         else:
             parser.print_help()
 
