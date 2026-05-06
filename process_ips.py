@@ -144,6 +144,13 @@ def main():
     # 2. 解析文件并合并订阅列表
     groups = parse_source_file(latest_file)
     
+    # 解析完成后清理下载目录
+    for txt_file in glob.glob(os.path.join(DOWNLOAD_DIR, "*.txt")):
+        try:
+            os.remove(txt_file)
+        except Exception as e:
+            print(f"清理下载文件失败: {txt_file}, {e}")
+
     sub_ips = fetch_sub_ips()
     for entry in sub_ips:
         if ':' in entry:
@@ -177,43 +184,45 @@ def main():
             
             ip_to_original = {e[0]: e[1] for e in entries}
             
-            # 写入临时 IP 列表
-            with open(temp_ip_file, 'w') as f:
-                f.write("\n".join(e[0] for e in entries))
-            
-            # 构建测速命令
-            if args.mode == 'speed':
-                # 带宽模式：测试下载速度 (测试前 20 名)，应用最小带宽过滤
-                cfst_cmd = f"{CFST_BIN} -f {temp_ip_file} -tp {port} -dn 20 -sl {args.min_speed} -o {temp_csv}"
-            else:
-                # 延迟模式：仅 HTTPing 测速，增加 -dd 确保不进行下载测试
-                cfst_cmd = f"{CFST_BIN} -f {temp_ip_file} -tp {port} -httping -dd -o {temp_csv}"
-            
-            run_command(cfst_cmd, f"端口 {port} {args.mode} 测试中")
-    
-            # 解析测速结果
-            if os.path.exists(temp_csv):
-                try:
-                    with open(temp_csv, mode='r', encoding='utf-8-sig') as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            ip_addr = row.get('IP 地址') or row.get('IP Address') or list(row.values())[0]
-                            val = get_val_from_row(row, args.mode)
-                            
-                            if ip_addr in ip_to_original:
-                                suffix = ip_to_original[ip_addr]
-                                # 追加 "自用"，如果不存在 # 则先添加 #
-                                new_suffix = f"{suffix}自用" if '#' in suffix else f"{suffix}#自用"
-                                all_results.append({
-                                    'full_line': f"{ip_addr}:{new_suffix}",
-                                    'val': val
-                                })
+            try:
+                # 写入临时 IP 列表
+                with open(temp_ip_file, 'w') as f:
+                    f.write("\n".join(e[0] for e in entries))
+                
+                # 构建测速命令
+                if args.mode == 'speed':
+                    # 带宽模式：测试下载速度 (测试前 20 名)，应用最小带宽过滤
+                    cfst_cmd = f"{CFST_BIN} -f {temp_ip_file} -tp {port} -dn 20 -sl {args.min_speed} -o {temp_csv}"
+                else:
+                    # 延迟模式：仅 HTTPing 测速，增加 -dd 确保不进行下载测试
+                    cfst_cmd = f"{CFST_BIN} -f {temp_ip_file} -tp {port} -httping -dd -o {temp_csv}"
+                
+                run_command(cfst_cmd, f"端口 {port} {args.mode} 测试中")
+        
+                # 解析测速结果
+                if os.path.exists(temp_csv):
+                    try:
+                        with open(temp_csv, mode='r', encoding='utf-8-sig') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                ip_addr = row.get('IP 地址') or row.get('IP Address') or list(row.values())[0]
+                                val = get_val_from_row(row, args.mode)
+                                
+                                if ip_addr in ip_to_original:
+                                    suffix = ip_to_original[ip_addr]
+                                    # 追加 "自用"，如果不存在 # 则先添加 #
+                                    new_suffix = f"{suffix}自用" if '#' in suffix else f"{suffix}#自用"
+                                    all_results.append({
+                                        'full_line': f"{ip_addr}:{new_suffix}",
+                                        'val': val
+                                    })
+                    except Exception as e:
+                        print(f"读取端口 {port} 结果失败: {e}")
+            finally:
+                if os.path.exists(temp_csv):
                     os.remove(temp_csv)
-                except Exception as e:
-                    print(f"读取端口 {port} 结果失败: {e}")
-            
-            if os.path.exists(temp_ip_file):
-                os.remove(temp_ip_file)
+                if os.path.exists(temp_ip_file):
+                    os.remove(temp_ip_file)
 
         # 4. 排序并处理结果
         # 如果是带宽模式，按值降序排序；如果是延迟模式，按值升序排序
@@ -234,6 +243,12 @@ def main():
                 print(f"  [{i+1:>2}] {item['full_line']:<30} - {item['val']:.2f} {unit}")
     finally:
         run_command("sudo systemctl start sing-box.service", "正在恢复 sing-box 代理")
+        # 全局兜底清理残留的测速相关文件
+        for f in glob.glob("temp_ips_*.txt") + glob.glob("result_*.csv"):
+            try:
+                os.remove(f)
+            except:
+                pass
 
     # 6. 上传结果
     if top_results:
