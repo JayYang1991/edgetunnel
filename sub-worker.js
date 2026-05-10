@@ -92,9 +92,8 @@ async function handleSubRequest(request, env) {
 
     // 解析远程内容
     for (const line of remoteLines) {
-        if (line.startsWith('vless://')) {
-            // 如果是 VLESS 链接，提取其中的地址和端口部分，以便后续统一重新生成（或直接保留）
-            // 这里我们选择提取 IP:PORT 部分并去重，备注部分也尽量保留
+        if (line.startsWith('vless://') || line.startsWith('trojan://')) {
+            // 如果是 VLESS 或 Trojan 链接，提取其中的地址和端口部分，以便后续统一重新生成
             const match = line.match(/@([^?#]+)/);
             if (match) {
                 const addressPort = match[1];
