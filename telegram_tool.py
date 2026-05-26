@@ -1,4 +1,4 @@
-#!/home/jason/miniconda3/bin/python3
+#!/home/jason/.venv/bin/python3
 import os
 import argparse
 import asyncio

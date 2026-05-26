@@ -207,6 +207,88 @@
 
 ---
 
+## 🤖 Telegram 辅助工具 (`telegram_tool.py`)
+
+为了方便管理 Telegram 订阅源、解析会话 ID 以及自动下载 IP 资源文件，本项目提供了一个功能强大的 Telegram 辅助工具 `telegram_tool.py`。该工具基于 Telethon 库开发，支持高速并行下载、会话展示和实体解析。
+
+### 1. 前提条件与环境配置
+
+在运行该工具之前，请确保您的 Python 环境中安装了必要的依赖项。
+
+#### 安装依赖
+```bash
+pip install telethon requests
+```
+
+#### 配置 API 凭证
+使用此工具需要 Telegram API 凭证（API ID 和 API HASH），可通过访问 [my.telegram.org](https://my.telegram.org) 获取。
+在使用脚本前，需要将凭证配置为环境变量，或者在运行命令时临时指定：
+
+```bash
+export TG_API_ID="您的_API_ID"
+export TG_API_HASH="您的_API_HASH"
+```
+
+*注：首次运行脚本时会要求在终端输入您的手机号码和收到的验证码以建立会话，会话文件默认保存在 `/home/jason/user_data/config/telegram/my_tg_session`（可根据实际需要修改脚本中的 `SESSION_NAME` 变量）。*
+
+---
+
+### 2. 常用命令行指令
+
+`telegram_tool.py` 提供了四个子命令：`list`、`show` 、`download` 和 `info`。
+
+#### ① 获取聊天列表 (`list`)
+显示当前账号最近的 30 个聊天会话列表，包括每个会话的 **Chat ID** 和标题（Title），以便获取目标群组或频道的 ID：
+```bash
+python telegram_tool.py list
+```
+
+#### ② 预览聊天消息 (`show`)
+预览指定 Chat ID 会话的最近消息和包含的媒体资源文件名（默认展示最近 20 条）：
+```bash
+python telegram_tool.py show --id -100123456789 --limit 20
+```
+
+#### ③ 下载聊天文件 (`download`)
+从指定的聊天中批量或按需下载媒体文件。支持大文件并发下载及断点续传。
+
+* **根据会话名称下载文件（支持模糊搜索并去重）**：
+  ```bash
+  python telegram_tool.py download --name "CF中转" --limit 1 --output "./origin-iplist"
+  ```
+* **根据 Chat ID 下载并进行文件名关键字过滤**：
+  ```bash
+  python telegram_tool.py download --id -100123456789 --filter ".txt" --limit 5
+  ```
+* **下载指定的消息 ID 列表**：
+  ```bash
+  python telegram_tool.py download --id -100123456789 --ids 12345 12346 --output "./downloads"
+  ```
+* **配置并发与大文件下载参数（针对大文件）**：
+  * 支持 `--mode parallel`（并行，默认）和 `standard`（单线程）。
+  * 支持配置并发连接数 `-c` (默认 4) 和分块大小 `--chunk-size` (默认 512KB)。
+  ```bash
+  python telegram_tool.py download --id -100123456789 --mode parallel -c 4 --chunk-size 512
+  ```
+
+#### ④ 查询与解析信息 (`info`)
+获取当前登录账号信息、查询特定实体，或使用 Bot Token 获取最新会话 ID：
+
+* **获取当前登录用户的信息**：
+  ```bash
+  python telegram_tool.py info --me
+  ```
+* **解析指定用户名/群组名/频道的 ID**：
+  ```bash
+  python telegram_tool.py info --name "durov"
+  ```
+* **通过 Telegram Bot Token 获取与该 Bot 最近互动的 Chat ID**（非常适用于配置 Telegram 推送服务时获取用户 ID）：
+  ```bash
+  python telegram_tool.py info --token "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+  ```
+
+---
+
 ## 💻 客户端适配情况
 
 | 平台 | 推荐客户端 | 备注 |
