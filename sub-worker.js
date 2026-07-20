@@ -129,7 +129,14 @@ async function handleSubRequest(request, env) {
         return `vless://${uuid}@${address.trim()}:${port.trim()}?encryption=none&security=tls&sni=${host}&fp=chrome&type=ws&host=${host}&path=%2F#${encodeURIComponent(remark.trim())}`;
     }).filter(Boolean);
 
-    const result = nodes.join('\n');
+    // 5. 获取并追加手动配置的自定义代理节点
+    let customNodes = '';
+    if (env.KV) {
+        customNodes = await env.KV.get('CUSTOM_NODES.txt') || '';
+    }
+    const customLines = splitLines(customNodes);
+
+    const result = [...nodes, ...customLines].join('\n');
     return new Response(btoa(result), {
         headers: {
             'Content-Type': 'text/plain; charset=utf-8',
@@ -150,6 +157,8 @@ async function handleApiUpdate(request, env) {
     const url = new URL(request.url);
     const token = request.headers.get('Authorization') || url.searchParams.get('token');
     const mode = url.searchParams.get('mode');
+    const type = url.searchParams.get('type') || 'ips'; // 'ips' 对应 ADD.txt，'nodes' 对应 CUSTOM_NODES.txt
+    const kvKey = type === 'nodes' ? 'CUSTOM_NODES.txt' : 'ADD.txt';
 
     if (!env.TOKEN) {
         return new Response('Unauthorized: TOKEN environment variable not set', { status: 401 });
@@ -176,17 +185,17 @@ async function handleApiUpdate(request, env) {
     }
 
     if (env.KV) {
-        const invalidLines = validateProxyList(content);
+        const invalidLines = type === 'nodes' ? validateCustomNodes(content) : validateProxyList(content);
         if (invalidLines.length > 0) {
             return new Response('Invalid format in lines:\n' + invalidLines.join('\n'), { status: 400 });
         }
 
         let finalContent = content;
         if (mode === 'append') {
-            const existing = await env.KV.get('ADD.txt') || '';
+            const existing = await env.KV.get(kvKey) || '';
             finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
         }
-        await env.KV.put('ADD.txt', finalContent);
+        await env.KV.put(kvKey, finalContent);
         await env.KV.put('UPDATE_TIME', new Date().toISOString());
         return new Response('Updated successfully (' + (mode === 'append' ? 'Appended' : 'Overwritten') + ')', { status: 200 });
     } else {
@@ -229,19 +238,21 @@ async function handleAdminRequest(request, env) {
         if (isAuth && action === 'save') {
             const content = formData.get('content');
             const mode = formData.get('mode');
+            const type = formData.get('type') || 'ips'; // 'ips' or 'nodes'
+            const kvKey = type === 'nodes' ? 'CUSTOM_NODES.txt' : 'ADD.txt';
 
             if (env.KV) {
-                const invalidLines = validateProxyList(content);
+                const invalidLines = type === 'nodes' ? validateCustomNodes(content) : validateProxyList(content);
                 if (invalidLines.length > 0) {
-                    return new Response('节点格式错误:\n' + invalidLines.join('\n'), { status: 400 });
+                    return new Response('格式错误:\n' + invalidLines.join('\n'), { status: 400 });
                 }
 
                 let finalContent = content;
                 if (mode === 'append') {
-                    const existing = await env.KV.get('ADD.txt') || '';
+                    const existing = await env.KV.get(kvKey) || '';
                     finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
                 }
-                await env.KV.put('ADD.txt', finalContent);
+                await env.KV.put(kvKey, finalContent);
                 await env.KV.put('UPDATE_TIME', new Date().toISOString());
                 return new Response('Saved successfully', { status: 200 });
             }
@@ -253,8 +264,9 @@ async function handleAdminRequest(request, env) {
     }
 
     const currentIps = env.KV ? await env.KV.get('ADD.txt') || '' : 'KV not bound';
+    const customNodes = env.KV ? await env.KV.get('CUSTOM_NODES.txt') || '' : '';
     const updateTime = env.KV ? await env.KV.get('UPDATE_TIME') || '' : '';
-    return new Response(renderAdminPage(currentIps, updateTime), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    return new Response(renderAdminPage(currentIps, customNodes, updateTime), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 function splitLines(str) {
@@ -265,6 +277,21 @@ function splitLines(str) {
  * 校验节点清单格式
  * @returns {string[]} 返回错误行信息列表，若为空则校验通过
  */
+/**
+ * 校验自定义节点格式
+ * @returns {string[]} 返回错误行信息列表，若为空则校验通过
+ */
+function validateCustomNodes(content) {
+    const lines = splitLines(content);
+    const invalidLines = [];
+    for (const line of lines) {
+        if (!/^[a-z0-9-]+:\/\//i.test(line)) {
+            invalidLines.push(`"${line}" (无效的节点链接，需为 协议:// 格式)`);
+        }
+    }
+    return invalidLines;
+}
+
 function validateProxyList(content) {
     const lines = splitLines(content);
     const invalidLines = [];
@@ -392,7 +419,7 @@ function renderLoginPage() {
 </html>`;
 }
 
-function renderAdminPage(currentContent, updateTime) {
+function renderAdminPage(currentContent, customContent, updateTime) {
     let formattedTime = '';
     if (updateTime) {
         try {
@@ -535,6 +562,34 @@ function renderAdminPage(currentContent, updateTime) {
             z-index: 1000;
         }
         #toast.show { transform: translateY(0); opacity: 1; }
+
+        /* Tabs Styling */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tab-btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.75rem 0.75rem 0 0;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-btn:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -550,14 +605,19 @@ function renderAdminPage(currentContent, updateTime) {
             <button class="btn btn-outline" onclick="location.href='/login'">退出</button>
         </header>
         <div class="card">
+            <div class="tabs">
+                <button class="tab-btn active" id="tabIps" onclick="switchTab('ips')">优选 IP 配置</button>
+                <button class="tab-btn" id="tabNodes" onclick="switchTab('nodes')">自定义节点配置</button>
+            </div>
             <div class="label-group">
-                <span class="label">自定义优选 IP 列表 (格式: 地址:端口#备注)</span>
+                <span class="label" id="editorLabel">自定义优选 IP 列表 (格式: 地址:端口#备注)</span>
                 <div class="mode-selector" id="modeSelector">
                     <div class="mode-option active" data-mode="overwrite" onclick="setMode('overwrite')">覆盖模式</div>
                     <div class="mode-option" data-mode="append" onclick="setMode('append')">追加模式</div>
                 </div>
             </div>
             <textarea id="content" placeholder="例如: 1.1.1.1:443#Cloudflare">${currentContent}</textarea>
+            <textarea id="nodesContent" style="display: none;" placeholder="例如: vless://...">${customContent}</textarea>
             <div class="actions">
                 <div class="hint" id="modeHint">当前模式：覆盖现有列表</div>
                 <button class="btn btn-primary" id="saveBtn" onclick="save()">
@@ -570,34 +630,64 @@ function renderAdminPage(currentContent, updateTime) {
     <div id="toast">保存成功！</div>
 
     <script>
+        let activeTab = 'ips';
         let currentMode = 'overwrite';
-        const initialContent = document.getElementById('content').value;
+        const initialIpsContent = document.getElementById('content').value;
+        const initialNodesContent = document.getElementById('nodesContent').value;
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('tabIps').classList.toggle('active', tab === 'ips');
+            document.getElementById('tabNodes').classList.toggle('active', tab === 'nodes');
+
+            const ipsTextarea = document.getElementById('content');
+            const nodesTextarea = document.getElementById('nodesContent');
+            const label = document.getElementById('editorLabel');
+
+            if (tab === 'ips') {
+                ipsTextarea.style.display = 'block';
+                nodesTextarea.style.display = 'none';
+                label.innerText = '自定义优选 IP 列表 (格式: 地址:端口#备注)';
+            } else {
+                ipsTextarea.style.display = 'none';
+                nodesTextarea.style.display = 'block';
+                label.innerText = '手动配置代理节点 (支持完整节点链接，如 vless://、trojan://)';
+            }
+            
+            // 切换 Tab 时重置一次模式相关的提示与值
+            setMode(currentMode);
+        }
 
         function setMode(mode) {
             currentMode = mode;
             document.querySelectorAll('.mode-option').forEach(opt => {
                 opt.classList.toggle('active', opt.dataset.mode === mode);
             });
+            
             const hint = document.getElementById('modeHint');
-            const textarea = document.getElementById('content');
+            const isIps = activeTab === 'ips';
+            const textarea = document.getElementById(isIps ? 'content' : 'nodesContent');
+            const initialVal = isIps ? initialIpsContent : initialNodesContent;
+            
             if (mode === 'append') {
-                hint.innerText = '当前模式：将输入的内容追加到现有列表末尾';
-                textarea.placeholder = '输入要追加的 IP 列表...';
-                // 如果是追加模式且内容是当前获取的内容，清空它以便用户输入新的内容
-                if (textarea.value.trim() === initialContent.trim()) {
+                hint.innerText = isIps ? '当前模式：将输入的内容追加到现有优选 IP 列表末尾' : '当前模式：将输入的内容追加到现有自定义节点列表末尾';
+                textarea.placeholder = isIps ? '输入要追加的 IP 列表...' : '输入要追加的节点链接...';
+                if (textarea.value.trim() === initialVal.trim()) {
                     textarea.value = '';
                 }
             } else {
-                hint.innerText = '当前模式：用输入的内容覆盖现有列表';
-                textarea.placeholder = '例如: 1.1.1.1:443#Cloudflare';
+                hint.innerText = isIps ? '当前模式：用输入的内容覆盖现有优选 IP 列表' : '当前模式：用输入的内容覆盖现有自定义节点列表';
+                textarea.placeholder = isIps ? '例如: 1.1.1.1:443#Cloudflare' : '例如: vless://...';
                 if (textarea.value.trim() === '') {
-                    textarea.value = initialContent;
+                    textarea.value = initialVal;
                 }
             }
         }
 
         async function save() {
-            const content = document.getElementById('content').value;
+            const isIps = activeTab === 'ips';
+            const textarea = document.getElementById(isIps ? 'content' : 'nodesContent');
+            const content = textarea.value;
             const btn = document.getElementById('saveBtn');
             btn.disabled = true;
             const originalHtml = btn.innerHTML;
@@ -608,6 +698,7 @@ function renderAdminPage(currentContent, updateTime) {
                 formData.append('action', 'save');
                 formData.append('content', content);
                 formData.append('mode', currentMode);
+                formData.append('type', activeTab);
 
                 const res = await fetch('/admin', {
                     method: 'POST',
@@ -616,6 +707,7 @@ function renderAdminPage(currentContent, updateTime) {
 
                 if (res.ok) {
                     showToast(currentMode === 'append' ? '追加成功！' : '保存成功！');
+                    localStorage.setItem('adminActiveTab', activeTab);
                     setTimeout(() => location.reload(), 1000);
                 } else {
                     const errorMsg = await res.text();
@@ -628,6 +720,12 @@ function renderAdminPage(currentContent, updateTime) {
                 btn.innerHTML = originalHtml;
             }
         }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTab = localStorage.getItem('adminActiveTab') || 'ips';
+            switchTab(savedTab);
+            localStorage.removeItem('adminActiveTab');
+        });
 
         function showToast(msg, isError = false) {
             const toast = document.getElementById('toast');
