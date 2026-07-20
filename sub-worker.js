@@ -187,6 +187,7 @@ async function handleApiUpdate(request, env) {
             finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
         }
         await env.KV.put('ADD.txt', finalContent);
+        await env.KV.put('UPDATE_TIME', new Date().toISOString());
         return new Response('Updated successfully (' + (mode === 'append' ? 'Appended' : 'Overwritten') + ')', { status: 200 });
     } else {
         return new Response('KV not bound', { status: 500 });
@@ -241,6 +242,7 @@ async function handleAdminRequest(request, env) {
                     finalContent = existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content;
                 }
                 await env.KV.put('ADD.txt', finalContent);
+                await env.KV.put('UPDATE_TIME', new Date().toISOString());
                 return new Response('Saved successfully', { status: 200 });
             }
         }
@@ -251,7 +253,8 @@ async function handleAdminRequest(request, env) {
     }
 
     const currentIps = env.KV ? await env.KV.get('ADD.txt') || '' : 'KV not bound';
-    return new Response(renderAdminPage(currentIps), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    const updateTime = env.KV ? await env.KV.get('UPDATE_TIME') || '' : '';
+    return new Response(renderAdminPage(currentIps, updateTime), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 function splitLines(str) {
@@ -389,7 +392,25 @@ function renderLoginPage() {
 </html>`;
 }
 
-function renderAdminPage(currentContent) {
+function renderAdminPage(currentContent, updateTime) {
+    let formattedTime = '';
+    if (updateTime) {
+        try {
+            const d = new Date(updateTime);
+            formattedTime = new Intl.DateTimeFormat('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'Asia/Shanghai'
+            }).format(d);
+        } catch (e) {
+            formattedTime = updateTime;
+        }
+    }
+
     return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -519,7 +540,13 @@ function renderAdminPage(currentContent) {
 <body>
     <div class="container">
         <header>
-            <h1>edgetunnel 优选 IP 管理</h1>
+            <div>
+                <h1>edgetunnel 优选 IP 管理</h1>
+                ${formattedTime ? `<div style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.4rem; display: flex; align-items: center; gap: 0.25rem;">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="opacity: 0.8;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    最近更新时间: ${formattedTime}
+                </div>` : ''}
+            </div>
             <button class="btn btn-outline" onclick="location.href='/login'">退出</button>
         </header>
         <div class="card">
@@ -589,10 +616,7 @@ function renderAdminPage(currentContent) {
 
                 if (res.ok) {
                     showToast(currentMode === 'append' ? '追加成功！' : '保存成功！');
-                    if (currentMode === 'append') {
-                        // 追加成功后建议刷新或切换回覆盖模式查看结果
-                        setTimeout(() => location.reload(), 1500);
-                    }
+                    setTimeout(() => location.reload(), 1000);
                 } else {
                     const errorMsg = await res.text();
                     showToast(errorMsg, true);
